@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"log"
 
@@ -13,7 +14,7 @@ import (
 
 func main() {
 	// Connect to MySQL
-	dsn := "root:rootpassword@tcp(mysql:3306)/mydb"
+	dsn := "user:password@tcp(localhost:3322)/mydb"
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatal(err)
@@ -31,21 +32,25 @@ func main() {
 	}
 	log.Println("{TESTING}", chainid)
 
-	//// Example: Interact with MySQL
-	//rows, err := db.Query("SELECT * FROM transactions")
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//defer rows.Close()
-	//
-	//// Print out data from MySQL
-	//for rows.Next() {
-	//	var tx string
-	//	if err := rows.Scan(&tx); err != nil {
-	//		log.Fatal(err)
-	//	}
-	//	fmt.Println(tx)
-	//}
-	//
-	//// Additional Go code for interacting with Ethereum and MySQL...
+	// Example: Interact with MySQL
+	rows, err := db.Query("SELECT username FROM users")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	// Print out data from MySQL
+	for rows.Next() {
+		var tx struct {
+			Id       int64
+			Username string
+			Password string
+			Token    string
+			Role     int64
+		}
+		if err := rows.Scan(&tx.Username); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(tx.Username)
+	}
 }

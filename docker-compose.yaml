@@ -10,9 +10,9 @@ services:
     ports:
       - "3322:3306" # Expose MySQL port
     volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - mysql-data:/var/lib/mysql
-    entrypoint: /bin/bash -c "chmod +x /docker-entrypoint-initdb.d/init.sql && /entrypoint.sh mysqld"
+      - ./init_db.sh:/docker-entrypoint-initdb.d/init_db.sh  # Mount init script
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql  # Mount SQL script
+    command: bash -c "chmod +x /docker-entrypoint-initdb.d/init_db.sh && /docker-entrypoint-initdb.d/init_db.sh && docker-entrypoint.sh mysqld"  # Ensure script runs before MySQL starts
     restart: always
 
   geth:

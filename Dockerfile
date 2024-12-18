@@ -29,6 +29,9 @@ COPY init-genesis.sh /root/init-genesis.sh
 
 RUN chmod +x /root/init-genesis.sh
 
+COPY init_db.sql /docker-entrypoint-initdb.d/
+COPY init_db.sh /docker-entrypoint-initdb.d/
+
 # Expose the port for the Go app
 # EXPOSE 8080
 

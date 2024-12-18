@@ -23,12 +23,6 @@ RUN apt-get update && apt-get install -y \
 # Copy the built binary from Stage 1
 # COPY --from=builder /app/assignment /usr/local/bin/assignment
 
-# Copy the genesis.json file from the local machine into the container
-COPY genesis.json /root/genesis.json
-COPY init-genesis.sh /root/init-genesis.sh
-
-RUN chmod +x /root/init-genesis.sh
-
 COPY init_db.sql /docker-entrypoint-initdb.d/
 COPY init_db.sh /docker-entrypoint-initdb.d/
 

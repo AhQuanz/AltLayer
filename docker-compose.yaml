@@ -8,12 +8,19 @@ services:
       MYSQL_USER: user
       MYSQL_PASSWORD: password
     ports:
-      - "3322:3306" # Expose MySQL port
+      - "3306:3306" # Expose MySQL port
     volumes:
-      - ./init_db.sh:/docker-entrypoint-initdb.d/init_db.sh  # Mount init script
-      - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql  # Mount SQL script
-    command: bash -c "chmod +x /docker-entrypoint-initdb.d/init_db.sh && /docker-entrypoint-initdb.d/init_db.sh && docker-entrypoint.sh mysqld"  # Ensure script runs before MySQL starts
-    restart: always
+      - ./init_db.sh:/docker-entrypoint-initdb.d/init_db.sh # Mount init script
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql # Mount SQL script
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "chmod +x /docker-entrypoint-initdb.d/init_db.sh && /docker-entrypoint-initdb.d/init_db.sh && docker-entrypoint.sh mysqld",
+      ]
+    networks:
+      - geth-net
+    #restart: always
 
   geth:
     image: ethereum/client-go:v1.12.2
@@ -22,7 +29,7 @@ services:
       - ./genesis.json:/root/genesis.json
       - geth-data:/root/.ethereum
       - ./init-genesis.sh:/root/init-genesis.sh
-      - ./keystore:/root/.ethereum/keystore  # Mount the keystore files
+      - ./keystore:/root/.ethereum/keystore # Mount the keystore files
     entrypoint:
       [
         "/bin/sh",
@@ -34,35 +41,25 @@ services:
     networks:
       - geth-net
 
-  contract-deployer:
+  web-app:
     build:
       context: .
-      dockerfile: Dockerfile.chain  # Use the Dockerfile for contract deployment
-    container_name: contract-deployer
+    container_name: web-app
     depends_on:
       - geth
+      - mysql
     environment:
       - INFURA_URL=http://geth:8545
-      - PRIVATE_KEY=0xc81786c23e512324ed9b544ad8b7cdfc629e1651  # Use the private key for deploying contracts
+      - DB_URL=mysql:3306
+      - PRIVATE_KEY=0xc81786c23e512324ed9b544ad8b7cdfc629e1651
+    ports:
+      - "8080:8080" # Web app exposed on port 8080
     networks:
       - geth-net
-    restart: "no"  # Only run this once (unless you want to keep retrying)
-
-  # Web app (optional, depending on your use case)
-  #web-app:
-    #build:
-      #context: .
-      #dockerfile: Dockerfile  # Use the Dockerfile for the web app
-    #container_name: web-app
-    #depends_on:
-    #  - geth
-    #ports:
-    #  - "8080:8080"  # Web app exposed on port 8080
-    #networks:
-    #  - geth-net
 
 networks:
   geth-net:
+    name: application_geth-net
     driver: bridge
 
 volumes:

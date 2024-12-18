@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3322:3322"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  geth:
+    image: ethereum/client-go:v1.12.2
+    container_name: geth-node
+    volumes:
+      - ./genesis.json:/root/genesis.json
+      - geth-data:/root/.ethereum
+      - ./init-genesis.sh:/root/init-genesis.sh
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "chmod +x /root/init-genesis.sh && /root/init-genesis.sh",
+      ]
+    ports:
+      - "8545:8545"
+
+  # go-app:
+  #   build: .
+  #   container_name: go-application
+  #   depends_on:
+  #     - mysql
+  #     - geth
+  #   environment:
+  #     DB_HOST: mysql
+  #     DB_USER: user
+  #     DB_PASSWORD: password
+  #     DB_NAME: mydb
+  #     GETH_RPC_URL: http://geth:8545
+  #   ports:
+  #     - "8080:8080"
+  #   restart: on-failure
+
+volumes:
+  mysql-data:
+  geth-data:

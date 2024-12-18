@@ -2,19 +2,23 @@ package main
 
 import (
 	"context"
+	"database/sql"
+
 	"log"
+
+	_ "github.com/go-sql-driver/mysql" // Import the driver anonymously
 
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 func main() {
-	//// Connect to MySQL
-	//dsn := "root:rootpassword@tcp(mysql:3306)/ethereum"
-	//db, err := sql.Open("mysql", dsn)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//defer db.Close()
+	// Connect to MySQL
+	dsn := "root:rootpassword@tcp(mysql:3306)/mydb"
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
 
 	//Connect to Ethereum Testnet (Geth)
 	cl, err := ethclient.Dial("http://localhost:8545")

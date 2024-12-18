@@ -8,9 +8,12 @@ services:
       MYSQL_USER: user
       MYSQL_PASSWORD: password
     ports:
-      - "3322:3322"
+      - "3322:3306" # Expose MySQL port
     volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
       - mysql-data:/var/lib/mysql
+    entrypoint: /bin/bash -c "chmod +x /docker-entrypoint-initdb.d/init.sql && /entrypoint.sh mysqld"
+    restart: always
 
   geth:
     image: ethereum/client-go:v1.12.2

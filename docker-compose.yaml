@@ -23,8 +23,10 @@ services:
     #restart: always
 
   geth:
-    image: ethereum/client-go:v1.12.2
+    image: ethereum/client-go:v1.11.6
     container_name: geth-node
+    environment:
+      GETH_PASSWORD: 123456
     volumes:
       - ./genesis.json:/root/genesis.json
       - geth-data:/root/.ethereum
@@ -41,21 +43,21 @@ services:
     networks:
       - geth-net
 
-  web-app:
-    build:
-      context: .
-    container_name: web-app
-    depends_on:
-      - geth
-      - mysql
-    environment:
-      - INFURA_URL=http://geth:8545
-      - DB_URL=mysql:3306
-      - PRIVATE_KEY=0xc81786c23e512324ed9b544ad8b7cdfc629e1651
-    ports:
-      - "8080:8080" # Web app exposed on port 8080
-    networks:
-      - geth-net
+  # web-app:
+  #   build:
+  #     context: .
+  #   container_name: web-app
+  #   depends_on:
+  #     - geth
+  #     - mysql
+  #   environment:
+  #     - INFURA_URL=http://geth:8545
+  #     - DB_URL=mysql:3306
+  #     - PRIVATE_KEY=0xc81786c23e512324ed9b544ad8b7cdfc629e1651
+  #   ports:
+  #     - "8080:8080" # Web app exposed on port 8080
+  #   networks:
+  #     - geth-net
 
 networks:
   geth-net:

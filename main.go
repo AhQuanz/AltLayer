@@ -1,19 +1,18 @@
 package main
 
 import (
+	"assignment/api"
 	"context"
 	"database/sql"
 	"fmt"
 	"math/big"
 	"os"
-	"strings"
 
 	"log"
 
 	_ "github.com/go-sql-driver/mysql" // Import the driver anonymously
 	"github.com/joho/godotenv"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
@@ -81,24 +80,13 @@ func setUpDefaultContract() {
 	if err != nil {
 		log.Fatalf("Failed to load private key: %v", err)
 	}
-	// Read ABI and Bytecode from files
-	tokenABI, err := os.ReadFile("tokenABI.json")
-	abi, err := abi.JSON(strings.NewReader(string(tokenABI)))
-	if err != nil {
-		log.Fatalf("Failed to read token ABI: %v", err)
-	}
 
-	tokenBytecode, err := os.ReadFile("tokenBytecode.bin")
-	if err != nil {
-		log.Fatalf("Failed to read token bytecode: %v", err)
-	}
-	
 	// Create an authorized transactor
 	chainID, err := client.ChainID(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("{TESTING}", chainID)
+
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
 		log.Fatalf("Failed to create authorized transactor: %v", err)
@@ -110,17 +98,18 @@ func setUpDefaultContract() {
 	if err != nil {
 		log.Fatalf("Failed to get account nonce: %v", err)
 	}
+
 	auth.Nonce = big.NewInt(int64(nonce))
-	auth.GasLimit = uint64(8000000)
-	initialSupply := big.NewInt(1000000) // 1 million tokens, for example
+	auth.Value = big.NewInt(0)      // in wei
+	auth.GasLimit = uint64(3000000) // in units
+	auth.GasPrice = big.NewInt(10000000)
 
-	// Deploy the contract
-	address, tx, _, err := bind.DeployContract(auth, abi, tokenBytecode, client, initialSupply)
+	address, tx, _, err  := api.DeployApi(auth, client) //api is redirected from api directory from our contract go file
 	if err != nil {
-		log.Fatalf("Failed to deploy contract: %v", err)
+		log.Fatalf("Failed to deploy new storage contract: %v", err)
 	}
-
-	fmt.Printf("Contract deployed! Address: %s\nTransaction hash: %s\n", address.Hex(), tx.Hash().Hex())
+	fmt.Printf("Contract pending deploy: 0x%x\n", address)
+	fmt.Printf("Transaction waiting to be mined: 0x%x\n\n", tx.Hash())
 }
 
 func getPrivateKey () {	

@@ -21,6 +21,7 @@ exec geth --datadir /root/.ethereum \
       --http.corsdomain "*" \
       --http.api "web3,eth,net,debug,personal,miner,admin" \
       --allow-insecure-unlock \
-      --networkid 12345
-      --evm-version cancun \
-      --mine --miner.threads=1
+      --networkid 12345 \
+      --mine \
+      --miner.etherbase 0xC81786c23E512324Ed9b544ad8B7CDfC629e1651 \
+      --miner.threads 1

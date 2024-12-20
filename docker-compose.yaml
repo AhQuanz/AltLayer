@@ -8,7 +8,7 @@ services:
       MYSQL_USER: user
       MYSQL_PASSWORD: password
     ports:
-      - "3306:3306" # Expose MySQL port
+      - "3322:3306" # Expose MySQL port
     volumes:
       - ./init_db.sh:/docker-entrypoint-initdb.d/init_db.sh # Mount init script
       - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql # Mount SQL script
@@ -52,7 +52,7 @@ services:
   #     - mysql
   #   environment:
   #     - INFURA_URL=http://geth:8545
-  #     - DB_URL=mysql:3306
+  #     - DB_URL=mysql:3322
   #     - PRIVATE_KEY=0xc81786c23e512324ed9b544ad8b7cdfc629e1651
   #   ports:
   #     - "8080:8080" # Web app exposed on port 8080

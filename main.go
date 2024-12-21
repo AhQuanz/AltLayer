@@ -3,9 +3,10 @@ package main
 import (
 	"assignment/api"
 	"context"
-	"database/sql"
 	"fmt"
+	"github.com/gorilla/mux"
 	"math/big"
+	"net/http"
 	"os"
 	"time"
 
@@ -15,10 +16,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 func checkEthConnection() (err error) {
@@ -36,15 +34,6 @@ func checkEthConnection() (err error) {
 	return
 }
 
-func getEthClient() (cl *ethclient.Client, err error) {
-	link := os.Getenv("INFURA_URL")
-	cl, err = ethclient.Dial(link)
-	if err != nil {
-		return
-	}
-	return
-}
-
 func checkDbConnection() (err error) {
 	_, err = getDBClient()
 	if err != nil {
@@ -53,30 +42,6 @@ func checkDbConnection() (err error) {
 	}
 	log.Println("[checkDbConnection] DB connected")
 	return
-}
-
-func getDBClient() (db *sql.DB, err error) {
-	dsn := fmt.Sprintf("user:password@tcp(%s)/mydb", os.Getenv("DB_URL"))
-	db, err = sql.Open("mysql", dsn)
-	if err != nil {
-		return
-	}
-	err = db.Ping()
-	return
-}
-
-func getContract() (contract *storage.Storage) {
-	client, err := getEthClient()
-	contractAddress := os.Getenv("CONTRACT_ADDRESS")
-	if len(contractAddress) == 0 {
-		return
-	}
-	address := common.HexToAddress(contractAddress)
-	contract, err = storage.NewStorage(address, client)
-	if err != nil {
-		return
-	}
-	return contract
 }
 
 func checkExistDefaultContract() bool {
@@ -102,24 +67,6 @@ func checkExistDefaultContract() bool {
 		fmt.Println("Contract found at this address!")
 	}
 	return len(code) != 0
-}
-
-func getTreasuryAuth(client *ethclient.Client) (auth *bind.TransactOpts, err error) {
-	privateKeyHex := os.Getenv("PRIVATE_KEY")
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
-	if err != nil {
-		log.Fatalf("Failed to load private key: %v", err)
-	}
-	chainID, err := client.ChainID(context.Background())
-	if err != nil {
-		panic(err)
-	}
-
-	auth, err = bind.NewKeyedTransactorWithChainID(privateKey, chainID)
-	if err != nil {
-		panic(err)
-	}
-	return
 }
 
 func setUpDefaultContract() {
@@ -176,24 +123,11 @@ func setUpDefaultContract() {
 	fmt.Println("Contract deployed")
 }
 
-func getPrivateKey() {
-	inPath := "keystore/UTC--2024-12-18T10-12-11.593180336Z--c81786c23e512324ed9b544ad8b7cdfc629e1651"
-	outPath := "key.hex"
-	//password := os.Getenv("WALLET_PASSWORD")
-	password := "123456"
-	keyjson, e := os.ReadFile(inPath)
-	if e != nil {
-		panic(e)
-	}
-	key, e := keystore.DecryptKey(keyjson, password)
-	if e != nil {
-		panic(e)
-	}
-	e = crypto.SaveECDSA(outPath, key.PrivateKey)
-	if e != nil {
-		panic(e)
-	}
-	fmt.Println("Key saved to:", outPath)
+func initRouters() *mux.Router {
+	router := mux.NewRouter()
+	router.HandleFunc("/withdraw", handleWithdraw).Methods("POST")
+	router.HandleFunc("/login", handleLogin).Methods("GET")
+	return router
 }
 
 func main() {
@@ -215,16 +149,11 @@ func main() {
 		time.Sleep(5 * time.Second)
 	}
 	setUpDefaultContract()
-	callOpts := &bind.CallOpts{Context: context.Background(), Pending: false}
-	contract := getContract()
-	if contract == nil {
-		log.Fatalln("NO CONTRACT FOUND")
+	port := os.Getenv("SERVER_PORT")
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: initRouters(),
 	}
-	client, err := getEthClient()
-	auth, err := getTreasuryAuth(client)
-	if err != nil {
-		log.Println("[setUpDefaultContract][getTreasuryAuth] err ")
-	}
-	balance, err := contract.BalanceOf(callOpts, auth.From)
-	fmt.Printf("Balance is %v\n", balance)
+	fmt.Printf("Server started at port %s\n", port)
+	srv.ListenAndServe()
 }

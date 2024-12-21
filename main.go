@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"time"
 
 	"log"
 
@@ -20,14 +21,37 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+func checkEthConnection() (err error) {
+	client, err := getEthClient()
+	if err != nil {
+		log.Printf("[checkEthConnection][getEthCLient] err: %s", err)
+		return
+	}
+	networkId, err := client.NetworkID(context.Background())
+	if err != nil {
+		log.Printf("[checkEthConnection] Getting network id failed, err:%s  \n", err)
+		return
+	}
+	log.Printf("[checkEthConnection] Network connected , network id : %d \n", networkId)
+	return
+}
+
 func getEthClient() (cl *ethclient.Client, err error) {
-	//Connect to Ethereum Testnet (Geth)
-	//link := os.Getenv("INFURA_URL")
-	link := "http://localhost:8545"
+	link := os.Getenv("INFURA_URL")
 	cl, err = ethclient.Dial(link)
 	if err != nil {
 		return
 	}
+	return
+}
+
+func checkDbConnection() (err error) {
+	_, err = getDBClient()
+	if err != nil {
+		log.Printf("[checkDbConnection][getDbClient] err : %s", err)
+		return
+	}
+	log.Println("[checkDbConnection] DB connected")
 	return
 }
 
@@ -39,6 +63,20 @@ func getDBClient() (db *sql.DB, err error) {
 	}
 	err = db.Ping()
 	return
+}
+
+func getContract() (contract *storage.Storage) {
+	client, err := getEthClient()
+	contractAddress := os.Getenv("CONTRACT_ADDRESS")
+	if len(contractAddress) == 0 {
+		return
+	}
+	address := common.HexToAddress(contractAddress)
+	contract, err = storage.NewStorage(address, client)
+	if err != nil {
+		return
+	}
+	return contract
 }
 
 func checkExistDefaultContract() bool {
@@ -66,18 +104,8 @@ func checkExistDefaultContract() bool {
 	return len(code) != 0
 }
 
-func setUpDefaultContract() {
-	if checkExistDefaultContract() {
-		return
-	}
-	client, err := getEthClient()
-	if err != nil {
-		log.Println("[setUpDefaultContract] connection to node failed", err)
-		return
-	}
-	// Load private key
-	//privateKeyHex := os.Getenv("PRIVATE_KEY")
-	privateKeyHex := "c9732d3436f13a29caf048977070cf0f58cc7ce88a71cf448071bdfa27176bbb"
+func getTreasuryAuth(client *ethclient.Client) (auth *bind.TransactOpts, err error) {
+	privateKeyHex := os.Getenv("PRIVATE_KEY")
 	privateKey, err := crypto.HexToECDSA(privateKeyHex)
 	if err != nil {
 		log.Fatalf("Failed to load private key: %v", err)
@@ -87,9 +115,27 @@ func setUpDefaultContract() {
 		panic(err)
 	}
 
-	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
+	auth, err = bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
 		panic(err)
+	}
+	return
+}
+
+func setUpDefaultContract() {
+	if checkExistDefaultContract() {
+		return
+	}
+	log.Println("Default contract is not found")
+	log.Println("Setting up network with default contract")
+	client, err := getEthClient()
+	if err != nil {
+		log.Println("[setUpDefaultContract] connection to node failed", err)
+		return
+	}
+	auth, err := getTreasuryAuth(client)
+	if err != nil {
+		log.Println("[setUpDefaultContract][getTreasuryAuth] err ")
 	}
 	// Get the nonce for the account
 	fromAddress := auth.From
@@ -111,13 +157,8 @@ func setUpDefaultContract() {
 	if err != nil {
 		panic(err)
 	}
-	//abi, err := store.StoreMetaData.GetAbi()
-	//if err != nil {
-	//	log.Panicln("[GetABi]err", err)
-	//}
 	auth.GasPrice = gasPrice
-	address, tranasction, _, err := store.DeployStore(auth, client) //api is redirected from api directory from our contract go file
-	// address, tranasction, _, err := bind.DeployContract(auth, *abi, []byte(store.StoreMetaData.Bin), client)
+	address, tranasction, _, err := storage.DeployStorage(auth, client, fromAddress) //api is redirected from api directory from our contract go file
 	if err != nil {
 		panic(err)
 	}
@@ -125,8 +166,14 @@ func setUpDefaultContract() {
 		log.Fatalf("Failed to deploy new storage contract: %v", err)
 		panic(err)
 	}
+
 	fmt.Printf("Contract pending deploy: 0x%x\n", address)
-	fmt.Printf("Transaction waiting to be mined: 0x%x\n\n", tranasction.Hash())
+	fmt.Printf("Transaction waiting to be mined: 0x%x\n", tranasction.Hash())
+	_, err = bind.WaitDeployed(context.Background(), client, tranasction)
+	if err != nil {
+		log.Fatalf("Failed to wait for contract to be deployed : %v", err)
+	}
+	fmt.Println("Contract deployed")
 }
 
 func getPrivateKey() {
@@ -150,35 +197,34 @@ func getPrivateKey() {
 }
 
 func main() {
-	getPrivateKey()
-	// Load environment variables from .env file (only in local development)
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, proceeding with Docker environment variables")
 	}
+	for {
+		err := checkEthConnection()
+		if err == nil {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
+	for {
+		err := checkDbConnection()
+		if err == nil {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
 	setUpDefaultContract()
-
-	//// Connect to MySQL
-	//db, err := getDBClient()
-	//defer db.Close()
-	////Example: Interact with MySQL
-	//rows, err := db.Query("SELECT username FROM users")
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//defer rows.Close()
-	//
-	//// Print out data from MySQL
-	//for rows.Next() {
-	//	var tx struct {
-	//		Id       int64
-	//		Username string
-	//		Password string
-	//		Token    string
-	//		Role     int64
-	//	}
-	//	if err := rows.Scan(&tx.Username); err != nil {
-	//		log.Fatal(err)
-	//	}
-	//	fmt.Println(tx.Username)
-	//}
+	callOpts := &bind.CallOpts{Context: context.Background(), Pending: false}
+	contract := getContract()
+	if contract == nil {
+		log.Fatalln("NO CONTRACT FOUND")
+	}
+	client, err := getEthClient()
+	auth, err := getTreasuryAuth(client)
+	if err != nil {
+		log.Println("[setUpDefaultContract][getTreasuryAuth] err ")
+	}
+	balance, err := contract.BalanceOf(callOpts, auth.From)
+	fmt.Printf("Balance is %v\n", balance)
 }

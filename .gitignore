@@ -1,0 +1,5 @@
+*.env
+.idea/.gitignore
+.idea/Application.iml
+.idea/modules.xml
+.idea/vcs.xml

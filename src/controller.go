@@ -27,7 +27,7 @@ func HandleNewWithdraw(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Could not connect to db"))
 		return
 	}
-	var user user
+	var user User
 	row := db.QueryRow("SELECT id, account_number FROM users where token = ?", token)
 	err = row.Scan(&user.Id, &user.AccountNumber)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -35,7 +35,7 @@ func HandleNewWithdraw(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("User cannot be found"))
 		return
 	} else if err != nil {
-		log.Printf("[HandleNewWithdraw][Get user] err : %v\n", err)
+		log.Printf("[HandleNewWithdraw][Get User] err : %v\n", err)
 		w.WriteHeader(200)
 		w.Write([]byte("DB Error"))
 		return
@@ -70,7 +70,7 @@ func HandleNewWithdraw(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-type user struct {
+type User struct {
 	Id            int
 	Token         string
 	AccountNumber string
@@ -90,15 +90,15 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Could not connect to db"))
 		return
 	}
-	var user user
+	var user User
 	row := db.QueryRow("SELECT id , token FROM users where username = ? AND password = ?", username, password)
 	err = row.Scan(&user.Id, &user.Token)
 	if errors.Is(err, sql.ErrNoRows) {
 		w.WriteHeader(200)
-		w.Write([]byte("Could not find specified user"))
+		w.Write([]byte("Could not find specified User"))
 		return
 	} else if err != nil {
-		log.Printf("[HandleLogin][Get user] err : %v\n", err)
+		log.Printf("[HandleLogin][Get User] err : %v\n", err)
 		w.WriteHeader(200)
 		w.Write([]byte("DB Error"))
 		return
@@ -121,14 +121,14 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := db.Exec("UPDATE users SET token = ? WHERE id = ?", tokenString, user.Id)
 	if err != nil {
-		log.Printf("[HandleLogin][Update user] err : %v\n", err)
+		log.Printf("[HandleLogin][Update User] err : %v\n", err)
 		w.WriteHeader(200)
 		w.Write([]byte("Token not updated in DB"))
 		return
 	}
 	numRows, _ := result.RowsAffected()
 	if numRows == 0 {
-		log.Printf("[HandleLogin][Update user] no rows affected user id : %d\n", user.Id)
+		log.Printf("[HandleLogin][Update User] no rows affected User id : %d\n", user.Id)
 		w.WriteHeader(200)
 		w.Write([]byte("Token not updated in DB"))
 		return
@@ -145,18 +145,19 @@ type withdrawalClaim struct {
 	Id          int
 	ClaimStatus int
 	Amount      string
+	ClaimUserId int64
 }
 
 func updateWithdrawalStatus(db *sql.DB, claimId, status int64) (result sql.Result, err error) {
 	result, err = db.Exec(`
 			UPDATE withdraw_claim
-			SET status = ? 
+			SET claim_status = ? 
 			WHERE id = ?
 		`, claimId, status)
 	return
 }
 
-func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (updateStatus int64) {
+func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (updateStatus int64, txHash common.Hash) {
 	ctx := context.Background()
 	client, err := GetEthClient()
 	if err != nil {
@@ -169,6 +170,7 @@ func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (u
 	}
 	contract := getContract()
 	toAddress := common.HexToAddress(accountNumber)
+	log.Println(toAddress, withdrawalAmount)
 	tx, err := contract.Withdraw(auth, toAddress, withdrawalAmount)
 	if err != nil {
 		log.Fatalf("Failed to wait for contract to be deployed : %v", err)
@@ -180,7 +182,8 @@ func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (u
 	if receipt.Status != types.ReceiptStatusSuccessful {
 		updateStatus = TX_SUCCESS_ON_CHAIN
 	}
-	return updateStatus
+	txHash = tx.Hash()
+	return
 }
 
 func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
@@ -193,14 +196,14 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := db.Begin()
 	defer db.Close()
-	var user user
+	var user User
 	// Retrieve User
 	{
-		row := db.QueryRow("SELECT id , role FROM users where token = ?", token)
-		err = row.Scan(&user.Id, &user.Role)
+		row := db.QueryRow("SELECT id , role, account_number FROM users where token = ?", token)
+		err = row.Scan(&user.Id, &user.Role, &user.AccountNumber)
 		if err != nil {
-			log.Printf("[HandleNewWithdraw][Get user] err : %v\n", err)
-			CheckDBErr(&w, err, "Cannot find specific user")
+			log.Printf("[HandleNewWithdraw][Get User] err : %v\n", err)
+			CheckDBErr(&w, err, "Cannot find specific User")
 			return
 		}
 	}
@@ -215,8 +218,8 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	var withdrawal withdrawalClaim
 	// Retrieve Withdraw Claim
 	{
-		withdrawRow := db.QueryRow("SELECT id, amount FROM withdraw_claim where id = ?", claimId)
-		err = withdrawRow.Scan(&withdrawal.Id, &withdrawal.Amount)
+		withdrawRow := db.QueryRow("SELECT id, amount, claim_user_id FROM withdraw_claim where id = ?", claimId)
+		err = withdrawRow.Scan(&withdrawal.Id, &withdrawal.Amount, &withdrawal.ClaimUserId)
 		if err != nil {
 			log.Printf("[HandleApproval][Get claim] err : %v\n", err)
 			CheckDBErr(&w, err, fmt.Sprintf("Withdrawal Claim of ID : %d cannot be found", claimId))
@@ -270,18 +273,12 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if approvalRes.TotalApproval == 0 {
-		updateWithdrawalRes, updateWithdrawlErr := updateWithdrawalStatus(db, claimId, TX_APPROVAL_IN_PROCESS)
-		if updateWithdrawlErr != nil {
-			CheckDBErr(&w, err, "Update withdrawal claim status failed")
-		}
-		numRows, _ := updateWithdrawalRes.RowsAffected()
-		if numRows == 0 {
-			log.Printf("[HandleLogin][Update user] no rows affected user id : %d\n", user.Id)
-			w.WriteHeader(200)
-			w.Write([]byte("No withdrawal claim is updated"))
-			tx.Rollback()
-			return
-		}
+		updateWithdrawalRes, err := updateWithdrawalStatus(db, claimId, TX_APPROVAL_IN_PROCESS)
+		CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim status failed")
+	}
+	if err != nil {
+		tx.Rollback()
+		return
 	}
 	approvalRes.TotalApproval += 1
 	if approvalRes.TotalApproval != 2 {
@@ -296,6 +293,47 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Claim amount parsing error"))
 		return
 	}
-	_ = SubmitWithdrawalToChain(user.AccountNumber, amountBig)
+	var claimUser User
+	// Retrieve User that submited claim
+	{
+		row := db.QueryRow("SELECT account_number FROM users where id = ?", withdrawal.ClaimUserId)
+		err = row.Scan(&claimUser.AccountNumber)
+		if err != nil {
+			log.Printf("[HandleNewWithdraw][Get User] err : %v\n", err)
+			CheckDBErr(&w, err, "Cannot find specific User")
+			tx.Rollback()
+			return
+		}
+	}
+	claimStatus, txHash := SubmitWithdrawalToChain(claimUser.AccountNumber, amountBig)
+	log.Println("HELLO", claimStatus, txHash.String())
 	tx.Commit()
+}
+
+func HandleCheckBalance(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("Token")
+	db, err := GetDBClient()
+	if err != nil {
+		w.WriteHeader(200)
+		w.Write([]byte("Could not connect to db"))
+		return
+	}
+	defer db.Close()
+	var user User
+	row := db.QueryRow("SELECT id , account_number FROM users where token = ?", token)
+	err = row.Scan(&user.Id, &user.AccountNumber)
+	if err != nil {
+		log.Printf("[HandleCheckBalance][Get User] err : %v\n", err)
+		CheckDBErr(&w, err, "Cannot find specific User")
+		return
+	}
+	callOpts := &bind.CallOpts{Context: context.Background(), Pending: false}
+	contract := getContract()
+	if contract == nil {
+		log.Fatalln("NO CONTRACT FOUND")
+	}
+	address := common.HexToAddress(user.AccountNumber)
+	log.Println(user.AccountNumber)
+	balance, err := contract.BalanceOf(callOpts, address)
+	fmt.Printf("Balance is %v\n", balance)
 }

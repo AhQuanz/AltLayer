@@ -1,0 +1,309 @@
+{
+	"info": {
+		"_postman_id": "4c4c9df4-4599-44c4-b1cd-dc7b940adf94",
+		"name": "Application",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "27794724"
+	},
+	"item": [
+		{
+			"name": "Submit Withdraw",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Token",
+						"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzQ4NzA0NTksImlhdCI6MTczNDg2Njg1OSwidXNlcm5hbWUiOiJzdGFmZjEifQ.zeNMAykq7FLrGdZnBYuNjCurbENV1gIhLYR3xvX5Spc",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "Amount",
+							"value": "100",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": ":8080/submitWithdraw",
+					"port": "8080",
+					"path": [
+						"submitWithdraw"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Approval Withdraw Claim - Manager 1",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Token",
+						"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzQ4NzA0NDQsImlhdCI6MTczNDg2Njg0NCwidXNlcm5hbWUiOiJtYW5hZ2VyMSJ9.A92KYKiQgM03orXsLuW-Lfh5mJN-gitYlJBCha58MDc",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "ClaimId",
+							"value": "1",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": ":8080/approveWithdraw",
+					"port": "8080",
+					"path": [
+						"approveWithdraw"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Approval Withdraw Claim - Manager 2",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Token",
+						"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzQ4NjI2OTcsImlhdCI6MTczNDg1OTA5NywidXNlcm5hbWUiOiJzdGFmZjEifQ.nYBnnBqkDtq-SwhyKQCZX3vO3ZbuytzHR_XbYoQQyP8",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "Amount",
+							"value": "100",
+							"type": "text"
+						},
+						{
+							"key": "Message",
+							"value": "HELLO",
+							"type": "text",
+							"disabled": true
+						}
+					]
+				},
+				"url": {
+					"raw": ":8080/approveWithdraw",
+					"port": "8080",
+					"path": [
+						"approveWithdraw"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Login",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Array of accounts with their usernames and passwords",
+							"const accounts = [",
+							"    { username: pm.collectionVariables.get(\"staff_username\"), password: pm.collectionVariables.get(\"staff_password\"), tokenVar: \"staff_token\" },",
+							"    { username: pm.collectionVariables.get(\"manager_username\"), password: pm.collectionVariables.get(\"manager_password\"), tokenVar: \"manager1_token\" },",
+							"    { username: pm.collectionVariables.get(\"manager2_username\"), password: pm.collectionVariables.get(\"manager2_password\"), tokenVar: \"manager2_token\" }",
+							"];",
+							"",
+							"// Get the current index from the environment or start with 0",
+							"let currentIndex = pm.collectionVariables.get(\"current_index\") || 0;",
+							"currentIndex = parseInt(currentIndex, 10); // Ensure it's a number",
+							"",
+							"// Ensure the index is within bounds",
+							"if (currentIndex >= accounts.length) {",
+							"    console.error(\"All accounts processed\");",
+							"    pm.execution.setNextRequest(null);",
+							"} else {",
+							"    // Set username and password for the current account",
+							"    const currentAccount = accounts[currentIndex];",
+							"    pm.collectionVariables.set(\"username\", currentAccount.username);",
+							"    pm.collectionVariables.set(\"password\", currentAccount.password);",
+							"",
+							"    // Store the token variable name for later use in the post-request script",
+							"    pm.collectionVariables.set(\"tokenVar\", currentAccount.tokenVar);",
+							"",
+							"    console.log(`Processing account ${currentIndex + 1}/${accounts.length}:`, currentAccount.username);",
+							"}",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"try {",
+							"    // Parse the response body as JSON",
+							"    const response = pm.response.json();",
+							"",
+							"    // Extract the token from the response",
+							"    const token = response.token;",
+							"",
+							"    // Get the token variable name from the environment",
+							"    const tokenVar = pm.collectionVariables.get(\"tokenVar\");",
+							"",
+							"    // Save the token to the environment variable",
+							"    if (token) {",
+							"        console.log(\"Token:\", token);",
+							"        pm.collectionVariables.set(tokenVar, token);",
+							"    } else {",
+							"        console.error(\"Token not found in the response\");",
+							"    }",
+							"} catch (e) {",
+							"    console.error(\"Error parsing response JSON:\", e);",
+							"}",
+							"",
+							"// Increment the current index for the next request",
+							"let currentIndex = pm.collectionVariables.get(\"current_index\") || 0;",
+							"currentIndex = parseInt(currentIndex, 10); // Ensure it's a number",
+							"pm.collectionVariables.set(\"current_index\", currentIndex + 1);",
+							"",
+							"// Set the next request to the same one to process the next account",
+							"postman.setNextRequest(pm.info.requestName);",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8080/login?Username={{username}}&Password={{password}}",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"login"
+					],
+					"query": [
+						{
+							"key": "Username",
+							"value": "{{username}}"
+						},
+						{
+							"key": "Password",
+							"value": "{{password}}"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Check Account Balance",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "staff_username",
+			"value": "staff1",
+			"type": "string"
+		},
+		{
+			"key": "staff_password",
+			"value": "staff1",
+			"type": "string"
+		},
+		{
+			"key": "manager_username",
+			"value": "manager1",
+			"type": "string"
+		},
+		{
+			"key": "manager_password",
+			"value": "manager1",
+			"type": "string"
+		},
+		{
+			"key": "manager2_username",
+			"value": "manager2",
+			"type": "string"
+		},
+		{
+			"key": "manager2_password",
+			"value": "manager2",
+			"type": "string"
+		},
+		{
+			"key": "staff_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "manager1_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "username",
+			"value": ""
+		},
+		{
+			"key": "password",
+			"value": ""
+		},
+		{
+			"key": "tokenVar",
+			"value": ""
+		},
+		{
+			"key": "current_index",
+			"value": ""
+		},
+		{
+			"key": "manager2_token",
+			"value": ""
+		}
+	]
+}

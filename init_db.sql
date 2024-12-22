@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS withdraw_claim  (
     claim_user_id INT NOT NULL,
     amount INT NOT NULL,
     claim_status INT default(0),
+    transaction_hash VARCHAR(255),
     FOREIGN KEY (claim_user_id) REFERENCES users(id)
 );
 

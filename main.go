@@ -101,6 +101,10 @@ func setUpDefaultContract() {
 		log.Fatalf("Failed to wait for contract to be deployed : %v", err)
 	}
 	fmt.Println("Contract deployed")
+	contractAddress := os.Getenv("CONTRACT_ADDRESS")
+	if address.String() != contractAddress {
+		fmt.Printf("Please update the docker-compose file`s contract address to be : %s\n", contractAddress)
+	}
 }
 
 func initRouters() *mux.Router {
@@ -109,6 +113,7 @@ func initRouters() *mux.Router {
 	router.HandleFunc("/submitWithdraw", src.HandleNewWithdraw).Methods("POST")
 	router.HandleFunc("/approveWithdraw", src.HandleWithdrawApproval).Methods("POST")
 	router.HandleFunc("/login", src.HandleLogin).Methods("GET")
+	router.HandleFunc("/checkBalance", src.HandleCheckBalance).Methods("GET")
 	return router
 }
 

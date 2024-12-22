@@ -114,7 +114,7 @@ func CheckTokenExpiry(tokenStr string) (isExpired bool, isValid bool) {
 func GenerateToken(username string) (tokenStr string, err error) {
 	claims := jwt.MapClaims{
 		"username": username,
-		"exp":      time.Now().Add(time.Hour * 1).Unix(),
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
 		"iat":      time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -123,8 +123,17 @@ func GenerateToken(username string) (tokenStr string, err error) {
 	return
 }
 
-func CheckDBExecErr() {
-	
+func CheckDBExecErr(res sql.Result, w *http.ResponseWriter, err error, errMsg string) {
+	if err != nil {
+		CheckDBErr(w, err, errMsg)
+		return
+	}
+	numRows, _ := res.RowsAffected()
+	if numRows == 0 {
+		(*w).WriteHeader(200)
+		(*w).Write([]byte("No records updated"))
+		return
+	}
 }
 
 func CheckDBErr(w *http.ResponseWriter, err error, errMsg string) {
@@ -133,6 +142,7 @@ func CheckDBErr(w *http.ResponseWriter, err error, errMsg string) {
 		(*w).Write([]byte(errMsg))
 		return
 	} else if err != nil {
+		log.Printf("[DB ERROR] err %s\n", err)
 		(*w).WriteHeader(200)
 		(*w).Write([]byte("DB Error"))
 		return

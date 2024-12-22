@@ -30,14 +30,9 @@ func HandleNewWithdraw(w http.ResponseWriter, r *http.Request) {
 	var user User
 	row := db.QueryRow("SELECT id, account_number FROM users where token = ?", token)
 	err = row.Scan(&user.Id, &user.AccountNumber)
-	if errors.Is(err, sql.ErrNoRows) {
-		w.WriteHeader(200)
-		w.Write([]byte("User cannot be found"))
-		return
-	} else if err != nil {
-		log.Printf("[HandleNewWithdraw][Get User] err : %v\n", err)
-		w.WriteHeader(200)
-		w.Write([]byte("DB Error"))
+	if err != nil {
+		log.Println("[HandleNewWithdraw] Query user error")
+		CheckDBErr(&w, err, "User cannot be found")
 		return
 	}
 	err = r.ParseMultipartForm(10 << 20)
@@ -52,18 +47,10 @@ func HandleNewWithdraw(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := db.Exec("INSERT INTO withdraw_claim(claim_user_id, amount) VALUES (?,?)", user.Id, bigNum.String())
 	if err != nil {
-		log.Printf("[HandleNewWithdraw] DB insert err: %v\n", err)
-		w.WriteHeader(200)
-		w.Write([]byte("Claim request failed to insert into DB"))
+		CheckDBExecLastIdErr(result, &w, err, "Claim request failed to insert into DB")
 		return
 	}
 	claimId, _ := result.LastInsertId()
-	if claimId == 0 {
-		log.Printf("[HandleNewWithdraw] DB insert failed")
-		w.WriteHeader(200)
-		w.Write([]byte("Claim request failed to insert into DB"))
-		return
-	}
 	response := NewWithdrawResponse{
 		ClaimId: claimId,
 	}
@@ -157,6 +144,39 @@ func updateWithdrawalStatus(db *sql.DB, claimId, status int64) (result sql.Resul
 	return
 }
 
+func CheckTreasuryBalance(withdrawalAmount *big.Int) {
+	ctx := context.Background()
+	client, err := GetEthClient()
+	if err != nil {
+		log.Println("[CheckTreasuryBalance] connection to node failed", err)
+		return
+	}
+	auth, err := GetTreasuryAuth(ctx, client)
+	if err != nil {
+		log.Println("[setUpDefaultContract][getTreasuryAuth] err ")
+		return
+	}
+	treasuryAddress := auth.From.String()
+	diff := big.NewInt(0)
+	balance, err := GetAccountBalance(treasuryAddress)
+	diff.Sub(balance, withdrawalAmount)
+	if diff.Int64() > 0 {
+		return
+	}
+	log.Println("Treasury has insufficient amount, proceeding to mint tokens")
+	contract := getContract()
+	mintAmount := big.NewInt(0)
+	mintAmount.Mul(withdrawalAmount, big.NewInt(2))
+	tx, err := contract.Mint(auth, mintAmount)
+	if err != nil {
+		log.Fatalf("Failed to wait for mint transaction to be submitted : %v", err)
+	}
+	fmt.Printf("Transaction waiting to be mined: 0x%x\n", tx.Hash())
+	bind.WaitMined(ctx, client, tx)
+	fmt.Printf("Transaction mined: 0x%x\n", tx.Hash())
+	return
+}
+
 func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (updateStatus int64, txHash common.Hash) {
 	ctx := context.Background()
 	client, err := GetEthClient()
@@ -167,22 +187,27 @@ func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (u
 	auth, err := GetTreasuryAuth(ctx, client)
 	if err != nil {
 		log.Println("[setUpDefaultContract][getTreasuryAuth] err ")
+		return
 	}
 	contract := getContract()
 	toAddress := common.HexToAddress(accountNumber)
 	log.Println(toAddress, withdrawalAmount)
 	tx, err := contract.Withdraw(auth, toAddress, withdrawalAmount)
 	if err != nil {
-		log.Fatalf("Failed to wait for contract to be deployed : %v", err)
+		log.Fatalf("Failed to wait for withdraw transction to be submitted : %v", err)
 	}
 	fmt.Printf("Transaction waiting to be mined: 0x%x\n", tx.Hash())
 	receipt, err := bind.WaitMined(ctx, client, tx)
-	fmt.Println("Transaction minted")
-	updateStatus = TX_CHAIN_ERROR
-	if receipt.Status != types.ReceiptStatusSuccessful {
+	fmt.Println("Transaction minted", receipt.Status)
+	if receipt.Status == types.ReceiptStatusSuccessful {
 		updateStatus = TX_SUCCESS_ON_CHAIN
+		txHash = tx.Hash()
+	} else {
+		go func() {
+			CheckTreasuryBalance(withdrawalAmount)
+		}()
+		updateStatus = TX_CHAIN_ERROR
 	}
-	txHash = tx.Hash()
 	return
 }
 
@@ -274,16 +299,17 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if approvalRes.TotalApproval == 0 {
 		updateWithdrawalRes, err := updateWithdrawalStatus(db, claimId, TX_APPROVAL_IN_PROCESS)
-		CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim status failed")
+		if err != nil {
+			CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim status failed")
+			tx.Rollback()
+			return
+		}
 	}
-	if err != nil {
-		tx.Rollback()
-		return
-	}
+
 	approvalRes.TotalApproval += 1
 	if approvalRes.TotalApproval != 2 {
 		w.WriteHeader(200)
-		w.Write([]byte("Withdrawal claim approved"))
+		w.Write([]byte("Approve successful"))
 		return
 	}
 	amountBig := big.NewInt(0)
@@ -305,9 +331,34 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Update withdrawal status to be approved
+	updateWithdrawalRes, err := updateWithdrawalStatus(db, claimId, TX_APPROVED)
+	if err != nil {
+		CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim status failed")
+		tx.Rollback()
+		return
+	}
 	claimStatus, txHash := SubmitWithdrawalToChain(claimUser.AccountNumber, amountBig)
-	log.Println("HELLO", claimStatus, txHash.String())
+	{
+		updateWithdrawalRes, err = db.Exec(`
+			UPDATE withdraw_claim
+			SET claim_status = ? , transaction_hash = ?
+			WHERE id = ?
+		`, claimStatus, txHash.String(), claimId)
+		if err != nil {
+			log.Printf(`
+				"HandleWithdrawApproval] Update withdrawal after submitting to chain failed 
+				claim id : %d , transaction hash : %v\n`, claimId, txHash.String())
+			CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim after submitting to chain failed")
+			return
+		}
+	}
+
 	tx.Commit()
+	w.WriteHeader(200)
+	w.Write([]byte("Approve successful"))
+	return
 }
 
 func HandleCheckBalance(w http.ResponseWriter, r *http.Request) {
@@ -327,13 +378,6 @@ func HandleCheckBalance(w http.ResponseWriter, r *http.Request) {
 		CheckDBErr(&w, err, "Cannot find specific User")
 		return
 	}
-	callOpts := &bind.CallOpts{Context: context.Background(), Pending: false}
-	contract := getContract()
-	if contract == nil {
-		log.Fatalln("NO CONTRACT FOUND")
-	}
-	address := common.HexToAddress(user.AccountNumber)
-	log.Println(user.AccountNumber)
-	balance, err := contract.BalanceOf(callOpts, address)
+	balance, err := GetAccountBalance(user.AccountNumber)
 	fmt.Printf("Balance is %v\n", balance)
 }

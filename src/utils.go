@@ -123,6 +123,19 @@ func GenerateToken(username string) (tokenStr string, err error) {
 	return
 }
 
+func CheckDBExecLastIdErr(res sql.Result, w *http.ResponseWriter, err error, errMsg string) {
+	if err != nil {
+		CheckDBErr(w, err, errMsg)
+		return
+	}
+	numRows, _ := res.LastInsertId()
+	if numRows == 0 {
+		(*w).WriteHeader(200)
+		(*w).Write([]byte("No new record inserted"))
+		return
+	}
+}
+
 func CheckDBExecErr(res sql.Result, w *http.ResponseWriter, err error, errMsg string) {
 	if err != nil {
 		CheckDBErr(w, err, errMsg)
@@ -147,5 +160,16 @@ func CheckDBErr(w *http.ResponseWriter, err error, errMsg string) {
 		(*w).Write([]byte("DB Error"))
 		return
 	}
+	return
+}
+
+func GetAccountBalance(accountNumber string) (balance *big.Int, err error) {
+	callOpts := &bind.CallOpts{Context: context.Background(), Pending: false}
+	contract := getContract()
+	if contract == nil {
+		log.Fatalln("NO CONTRACT FOUND")
+	}
+	address := common.HexToAddress(accountNumber)
+	balance, err = contract.BalanceOf(callOpts, address)
 	return
 }

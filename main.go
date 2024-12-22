@@ -2,10 +2,10 @@ package main
 
 import (
 	"assignment/api"
+	"assignment/src"
 	"context"
 	"fmt"
 	"github.com/gorilla/mux"
-	"math/big"
 	"net/http"
 	"os"
 	"time"
@@ -20,7 +20,7 @@ import (
 )
 
 func checkEthConnection() (err error) {
-	client, err := getEthClient()
+	client, err := src.GetEthClient()
 	if err != nil {
 		log.Printf("[checkEthConnection][getEthCLient] err: %s", err)
 		return
@@ -35,7 +35,7 @@ func checkEthConnection() (err error) {
 }
 
 func checkDbConnection() (err error) {
-	_, err = getDBClient()
+	_, err = src.GetDBClient()
 	if err != nil {
 		log.Printf("[checkDbConnection][getDbClient] err : %s", err)
 		return
@@ -50,9 +50,9 @@ func checkExistDefaultContract() bool {
 		return false
 	}
 	address := common.HexToAddress(contractAddress)
-	client, err := getEthClient()
+	client, err := src.GetEthClient()
 	if err != nil {
-		log.Println("[checkExistDefaultContract] getEthClient err", err)
+		log.Println("[checkExistDefaultContract] GetEthClient err", err)
 	}
 	// Get the code at the contract address
 	code, err := client.CodeAt(context.Background(), address, nil)
@@ -73,39 +73,19 @@ func setUpDefaultContract() {
 	if checkExistDefaultContract() {
 		return
 	}
+	ctx := context.Background()
 	log.Println("Default contract is not found")
 	log.Println("Setting up network with default contract")
-	client, err := getEthClient()
+	client, err := src.GetEthClient()
 	if err != nil {
 		log.Println("[setUpDefaultContract] connection to node failed", err)
 		return
 	}
-	auth, err := getTreasuryAuth(client)
+	auth, err := src.GetTreasuryAuth(ctx, client)
 	if err != nil {
 		log.Println("[setUpDefaultContract][getTreasuryAuth] err ")
 	}
-	// Get the nonce for the account
-	fromAddress := auth.From
-	//fetch the last use nonce of account
-	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
-	if err != nil {
-		panic(err)
-	}
-	balance, err := client.BalanceAt(context.Background(), fromAddress, nil)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("Account balance: %s wei\n", balance.String())
-
-	auth.Nonce = big.NewInt(int64(nonce))
-	auth.Value = big.NewInt(0)      // in wei
-	auth.GasLimit = uint64(3000000) // in units
-	gasPrice, err := client.SuggestGasPrice(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	auth.GasPrice = gasPrice
-	address, tranasction, _, err := storage.DeployStorage(auth, client, fromAddress) //api is redirected from api directory from our contract go file
+	address, tranasction, _, err := storage.DeployStorage(auth, client, auth.From)
 	if err != nil {
 		panic(err)
 	}
@@ -125,8 +105,10 @@ func setUpDefaultContract() {
 
 func initRouters() *mux.Router {
 	router := mux.NewRouter()
-	router.HandleFunc("/withdraw", handleWithdraw).Methods("POST")
-	router.HandleFunc("/login", handleLogin).Methods("GET")
+	router.Use(src.AuthMiddleware)
+	router.HandleFunc("/submitWithdraw", src.HandleNewWithdraw).Methods("POST")
+	router.HandleFunc("/approveWithdraw", src.HandleWithdrawApproval).Methods("POST")
+	router.HandleFunc("/login", src.HandleLogin).Methods("GET")
 	return router
 }
 

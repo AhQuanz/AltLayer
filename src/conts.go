@@ -1,0 +1,14 @@
+package src
+
+const (
+	ROLE_USER int64 = iota
+	ROLE_MANAGER
+)
+
+const (
+	TX_WAITING_APPROVAL int64 = iota
+	TX_APPROVAL_IN_PROCESS
+	TX_APPROVED
+	TX_SUCCESS_ON_CHAIN
+	TX_CHAIN_ERROR
+)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/robfig/cron/v3"
 )
 
 func checkEthConnection() (err error) {
@@ -141,6 +142,11 @@ func main() {
 		Addr:    ":" + port,
 		Handler: initRouters(),
 	}
+
+	c := cron.New()
+	c.AddFunc("*/1 * * * *", src.RetryFailedTransactions)
+	c.Start()
+
 	fmt.Printf("Server started at port %s\n", port)
 	srv.ListenAndServe()
 }

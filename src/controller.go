@@ -129,7 +129,7 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 type withdrawalClaim struct {
-	Id          int
+	Id          int64
 	ClaimStatus int
 	Amount      string
 	ClaimUserId int64
@@ -142,6 +142,69 @@ func updateWithdrawalStatus(db *sql.DB, claimId, status int64) (result sql.Resul
 			WHERE id = ?
 		`, claimId, status)
 	return
+}
+
+func updateWithdrawalStatusAndTxHash(db *sql.DB, claimId, status int64, txHash string) (result sql.Result, err error) {
+	result, err = db.Exec(`
+			UPDATE withdraw_claim
+			SET claim_status = ? , transaction_hash = ?
+			WHERE id = ?
+		`, status, txHash, claimId)
+	return
+}
+
+func RetryFailedTransactions() {
+	log.Println("RUNNING RetryFailedTransactions")
+	db, err := GetDBClient()
+	if err != nil {
+		log.Printf("[RetryFailedTransactions] GetDBClient failed err : %v\n", err)
+		return
+	}
+	result, err := db.Query(`
+		SELECT id, amount, claim_user_id FROM withdraw_claim WHERE claim_status = ? OR claim_status = ?`,
+		TX_CHAIN_ERROR, TX_APPROVED)
+	if err != nil && errors.Is(err, sql.ErrNoRows) {
+		return
+	} else if err != nil {
+		log.Printf("[RetryFailedTransactions][Get claims] err : %v\n", err)
+		return
+	}
+	for result.Next() {
+		var withdrawal withdrawalClaim
+		err = result.Scan(&withdrawal.Id, &withdrawal.Amount, &withdrawal.ClaimUserId)
+		if err != nil {
+			log.Printf("[RetryFailedTransactions][Get claim] err : %v\n", err)
+			return
+		}
+		var claimUser User
+		userRow := db.QueryRow("SELECT account_number FROM users where id = ?", withdrawal.ClaimUserId)
+		err = userRow.Scan(&claimUser.AccountNumber)
+		if err != nil {
+			log.Printf("[RetryFailedTransactions][Get User] err : %v\n", err)
+			return
+		}
+		amountBig := big.NewInt(0)
+		_, isSuccess := amountBig.SetString(withdrawal.Amount, 10)
+		if !isSuccess {
+			log.Printf("[RetryFailedTransactions][Parse Amount to big.int] err : %v\n", err)
+			return
+		}
+		claimStatus, txHash := SubmitWithdrawalToChain(claimUser.AccountNumber, amountBig)
+		updateResult, err := updateWithdrawalStatusAndTxHash(db, withdrawal.Id, claimStatus, txHash)
+		if err != nil {
+			log.Printf(`
+				[RetryFailedTransactions] Update withdrawal after submitting to chain failed 
+				claim id : %d , transaction hash : %v\n`, withdrawal.Id, txHash)
+			return
+		}
+		rowsAffected, _ := updateResult.RowsAffected()
+		if rowsAffected == 0 {
+			log.Printf(`
+				[RetryFailedTransactions] Update withdrawal after submitting to chain failed 
+				claim id : %d , transaction hash : %v\n`, withdrawal.Id, txHash)
+			return
+		}
+	}
 }
 
 func CheckTreasuryBalance(withdrawalAmount *big.Int) {
@@ -171,13 +234,13 @@ func CheckTreasuryBalance(withdrawalAmount *big.Int) {
 	if err != nil {
 		log.Fatalf("Failed to wait for mint transaction to be submitted : %v", err)
 	}
-	fmt.Printf("Transaction waiting to be mined: 0x%x\n", tx.Hash())
+	fmt.Printf("Minting token Transaction waiting to be mined: 0x%x\n", tx.Hash())
 	bind.WaitMined(ctx, client, tx)
 	fmt.Printf("Transaction mined: 0x%x\n", tx.Hash())
 	return
 }
 
-func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (updateStatus int64, txHash common.Hash) {
+func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (updateStatus int64, txHash string) {
 	ctx := context.Background()
 	client, err := GetEthClient()
 	if err != nil {
@@ -196,12 +259,12 @@ func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (u
 	if err != nil {
 		log.Fatalf("Failed to wait for withdraw transction to be submitted : %v", err)
 	}
-	fmt.Printf("Transaction waiting to be mined: 0x%x\n", tx.Hash())
+	fmt.Printf("Withdrawal Transaction waiting to be mined: 0x%x\n", tx.Hash())
 	receipt, err := bind.WaitMined(ctx, client, tx)
 	fmt.Println("Transaction minted", receipt.Status)
 	if receipt.Status == types.ReceiptStatusSuccessful {
 		updateStatus = TX_SUCCESS_ON_CHAIN
-		txHash = tx.Hash()
+		txHash = tx.Hash().String()
 	} else {
 		go func() {
 			CheckTreasuryBalance(withdrawalAmount)
@@ -340,21 +403,14 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	claimStatus, txHash := SubmitWithdrawalToChain(claimUser.AccountNumber, amountBig)
-	{
-		updateWithdrawalRes, err = db.Exec(`
-			UPDATE withdraw_claim
-			SET claim_status = ? , transaction_hash = ?
-			WHERE id = ?
-		`, claimStatus, txHash.String(), claimId)
-		if err != nil {
-			log.Printf(`
+	updateWithdrawalRes, err = updateWithdrawalStatusAndTxHash(db, claimId, claimStatus, txHash)
+	if err != nil {
+		log.Printf(`
 				"HandleWithdrawApproval] Update withdrawal after submitting to chain failed 
-				claim id : %d , transaction hash : %v\n`, claimId, txHash.String())
-			CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim after submitting to chain failed")
-			return
-		}
+				claim id : %d , transaction hash : %v\n`, claimId, txHash)
+		CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim after submitting to chain failed")
+		return
 	}
-
 	tx.Commit()
 	w.WriteHeader(200)
 	w.Write([]byte("Approve successful"))
@@ -378,6 +434,7 @@ func HandleCheckBalance(w http.ResponseWriter, r *http.Request) {
 		CheckDBErr(&w, err, "Cannot find specific User")
 		return
 	}
+	log.Printf("[HandleCheckBalance] Checking Balance for %v\n", user.AccountNumber)
 	balance, err := GetAccountBalance(user.AccountNumber)
 	fmt.Printf("Balance is %v\n", balance)
 }

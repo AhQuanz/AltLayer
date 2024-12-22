@@ -9,7 +9,7 @@ RUN go mod tidy
 
 # Copy the source code and build the Go application
 COPY . .
-#RUN go build -o assignment main.go
+RUN go build -o assignment main.go
 
 # Stage 2: Run the Go application
 FROM ubuntu:22.04
@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built binary from Stage 
-#COPY --from=builder /app/assignment /usr/local/bin/assignment
+COPY --from=builder /app/assignment /usr/local/bin/assignment
 
 COPY init_db.sql /docker-entrypoint-initdb.d/
 COPY init_db.sh /docker-entrypoint-initdb.d/
@@ -33,7 +33,7 @@ COPY ./keystore /root/.ethereum/keystore
 RUN chmod +x /root/init-genesis.sh
 
 # Expose the port for the Go app
-#EXPOSE 8080
+EXPOSE 8080
 
 # Run the Go application
-#CMD ["/usr/local/bin/assignment"]
+CMD ["/usr/local/bin/assignment"]

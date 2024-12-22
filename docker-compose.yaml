@@ -43,21 +43,24 @@ services:
     networks:
       - geth-net
 
-  # web-app:
-  #   build:
-  #     context: .
-  #   container_name: web-app
-  #   depends_on:
-  #     - geth
-  #     - mysql
-  #   environment:
-  #     - INFURA_URL=http://geth:8545
-  #     - DB_URL=mysql:3322
-  #     - PRIVATE_KEY=0xc81786c23e512324ed9b544ad8b7cdfc629e1651
-  #   ports:
-  #     - "8080:8080" # Web app exposed on port 8080
-  #   networks:
-  #     - geth-net
+  web-app:
+    build:
+      context: .
+    container_name: web-app
+    depends_on:
+      - geth
+      - mysql
+    environment:
+      - INFURA_URL=http://geth:8545
+      - DB_URL=mysql:3306
+      - SERVER_PORT=8080
+      - JWT_SECRET=123456
+      - PRIVATE_KEY=c9732d3436f13a29caf048977070cf0f58cc7ce88a71cf448071bdfa27176bbb
+      - CONTRACT_ADDRESS=0xd3b9694be6577718fe644f3ae6414afe533d5f99
+    ports:
+     - "8080:8080" # Web app exposed on port 8080
+    networks:
+     - geth-net
 
 networks:
   geth-net:

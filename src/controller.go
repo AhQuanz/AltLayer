@@ -130,22 +130,22 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 type withdrawalClaim struct {
 	Id          int64
-	ClaimStatus int
+	ClaimStatus int64
 	Amount      string
 	ClaimUserId int64
 }
 
-func updateWithdrawalStatus(db *sql.DB, claimId, status int64) (result sql.Result, err error) {
-	result, err = db.Exec(`
+func updateWithdrawalStatus(tx *sql.Tx, claimId, status int64) (result sql.Result, err error) {
+	result, err = tx.Exec(`
 			UPDATE withdraw_claim
 			SET claim_status = ? 
 			WHERE id = ?
-		`, claimId, status)
+		`, status, claimId)
 	return
 }
 
-func updateWithdrawalStatusAndTxHash(db *sql.DB, claimId, status int64, txHash string) (result sql.Result, err error) {
-	result, err = db.Exec(`
+func updateWithdrawalStatusAndTxHash(tx *sql.Tx, claimId, status int64, txHash string) (result sql.Result, err error) {
+	result, err = tx.Exec(`
 			UPDATE withdraw_claim
 			SET claim_status = ? , transaction_hash = ?
 			WHERE id = ?
@@ -161,8 +161,8 @@ func RetryFailedTransactions() {
 		return
 	}
 	result, err := db.Query(`
-		SELECT id, amount, claim_user_id FROM withdraw_claim WHERE claim_status = ? OR claim_status = ?`,
-		TX_CHAIN_ERROR, TX_APPROVED)
+		SELECT id, amount, claim_user_id FROM withdraw_claim WHERE claim_status = ?`,
+		TX_CHAIN_ERROR)
 	if err != nil && errors.Is(err, sql.ErrNoRows) {
 		return
 	} else if err != nil {
@@ -170,6 +170,8 @@ func RetryFailedTransactions() {
 		return
 	}
 	for result.Next() {
+		tx, err := db.Begin()
+		defer tx.Commit()
 		var withdrawal withdrawalClaim
 		err = result.Scan(&withdrawal.Id, &withdrawal.Amount, &withdrawal.ClaimUserId)
 		if err != nil {
@@ -190,7 +192,7 @@ func RetryFailedTransactions() {
 			return
 		}
 		claimStatus, txHash := SubmitWithdrawalToChain(claimUser.AccountNumber, amountBig)
-		updateResult, err := updateWithdrawalStatusAndTxHash(db, withdrawal.Id, claimStatus, txHash)
+		updateResult, err := updateWithdrawalStatusAndTxHash(tx, withdrawal.Id, claimStatus, txHash)
 		if err != nil {
 			log.Printf(`
 				[RetryFailedTransactions] Update withdrawal after submitting to chain failed 
@@ -306,13 +308,18 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	var withdrawal withdrawalClaim
 	// Retrieve Withdraw Claim
 	{
-		withdrawRow := db.QueryRow("SELECT id, amount, claim_user_id FROM withdraw_claim where id = ?", claimId)
-		err = withdrawRow.Scan(&withdrawal.Id, &withdrawal.Amount, &withdrawal.ClaimUserId)
+		withdrawRow := db.QueryRow("SELECT id, amount, claim_user_id, claim_status FROM withdraw_claim where id = ?", claimId)
+		err = withdrawRow.Scan(&withdrawal.Id, &withdrawal.Amount, &withdrawal.ClaimUserId, &withdrawal.ClaimStatus)
 		if err != nil {
 			log.Printf("[HandleApproval][Get claim] err : %v\n", err)
 			CheckDBErr(&w, err, fmt.Sprintf("Withdrawal Claim of ID : %d cannot be found", claimId))
 			return
 		}
+	}
+	if withdrawal.ClaimStatus == TX_SUCCESS_ON_CHAIN {
+		w.WriteHeader(200)
+		w.Write([]byte("Withdrawal Claim has already been approved by 2 managers and submitted to chain"))
+		return
 	}
 	// Retrieve withdraw claim approval records
 	var approvalRes struct {
@@ -342,7 +349,7 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	// Insert approval
 	{
-		result, err := db.Exec(`
+		result, err := tx.Exec(`
 		INSERT INTO withdraw_claims_approval(claim_id, approve_manager_id)
 		VALUES(? , ?)
 	`, claimId, user.Id)
@@ -361,7 +368,7 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if approvalRes.TotalApproval == 0 {
-		updateWithdrawalRes, err := updateWithdrawalStatus(db, claimId, TX_APPROVAL_IN_PROCESS)
+		updateWithdrawalRes, err := updateWithdrawalStatus(tx, claimId, TX_APPROVAL_IN_PROCESS)
 		if err != nil {
 			CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim status failed")
 			tx.Rollback()
@@ -371,6 +378,7 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 
 	approvalRes.TotalApproval += 1
 	if approvalRes.TotalApproval != 2 {
+		tx.Commit()
 		w.WriteHeader(200)
 		w.Write([]byte("Approve successful"))
 		return
@@ -396,14 +404,14 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update withdrawal status to be approved
-	updateWithdrawalRes, err := updateWithdrawalStatus(db, claimId, TX_APPROVED)
+	updateWithdrawalRes, err := updateWithdrawalStatus(tx, claimId, TX_APPROVED)
 	if err != nil {
 		CheckDBExecErr(updateWithdrawalRes, &w, err, "Update withdrawal claim status failed")
 		tx.Rollback()
 		return
 	}
 	claimStatus, txHash := SubmitWithdrawalToChain(claimUser.AccountNumber, amountBig)
-	updateWithdrawalRes, err = updateWithdrawalStatusAndTxHash(db, claimId, claimStatus, txHash)
+	updateWithdrawalRes, err = updateWithdrawalStatusAndTxHash(tx, claimId, claimStatus, txHash)
 	if err != nil {
 		log.Printf(`
 				"HandleWithdrawApproval] Update withdrawal after submitting to chain failed 

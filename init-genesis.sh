@@ -19,6 +19,7 @@ echo "Starting Geth..."
 exec geth --datadir /root/.ethereum \
       --http --http.addr "0.0.0.0" --http.port 8545 \
       --http.corsdomain "*" \
+      --http.vhosts=* \
       --http.api "web3,eth,net,debug,personal,miner,admin" \
       --allow-insecure-unlock \
       --networkid 12345 \

@@ -21,6 +21,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Token Not Valid", http.StatusUnauthorized)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		// Call the next handler if authenticated
 		next.ServeHTTP(w, r)
 	})

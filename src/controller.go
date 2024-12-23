@@ -45,6 +45,7 @@ func HandleNewWithdraw(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Invalid Amount"))
 		return
 	}
+	log.Printf("[HandleNewWithdraw] Creating withdrawal claim of %v\n", bigNum)
 	hasEnoughBalance, err := HasEnoughTreasuryBalance(bigNum)
 	if err != nil {
 		log.Printf("[HandleNewWithdraw][HasEnoughTreasuryBalance] err: %v\n", err)
@@ -111,6 +112,7 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(response)
 		return
 	}
+	log.Printf("[HandleLogin] Generating token for username : %s\n", username)
 	tokenString, err := GenerateToken(username)
 	if err != nil {
 		log.Printf("[HandleLogin][JWT SignedString] err : %v\n", err)
@@ -166,7 +168,6 @@ func updateWithdrawalStatusAndTxHash(tx *sql.Tx, claimId, status int64, txHash s
 }
 
 func RetryFailedTransactions() {
-	log.Println("RUNNING RetryFailedTransactions")
 	db, err := GetDBClient()
 	if err != nil {
 		log.Printf("[RetryFailedTransactions] GetDBClient failed err : %v\n", err)
@@ -203,6 +204,7 @@ func RetryFailedTransactions() {
 			log.Printf("[RetryFailedTransactions][Parse Amount to big.int] err : %v\n", err)
 			return
 		}
+		log.Printf("[RetryFailedTransactions] Retrying submitting claim id : %d to chain \n", withdrawal.Id)
 		claimStatus, txHash := SubmitWithdrawalToChain(claimUser.AccountNumber, amountBig)
 		updateResult, err := updateWithdrawalStatusAndTxHash(tx, withdrawal.Id, claimStatus, txHash)
 		if err != nil {
@@ -286,6 +288,7 @@ func IsUserAuthorized(db *sql.DB, w *http.ResponseWriter, token string) (user Us
 		(*w).Write([]byte("User has no permission to approve withdrawal claims"))
 		return
 	}
+	isAuthorized = true
 	return
 }
 
@@ -303,11 +306,11 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	if !isAuthorized || err != nil {
 		return
 	}
-
 	err = r.ParseMultipartForm(10 << 20)
 	claimIdStr := r.FormValue("ClaimId")
 	claimId, err := strconv.ParseInt(claimIdStr, 10, 64)
 	var withdrawal withdrawalClaim
+	log.Printf("[HandleWithdrawApproval] Handling withdrawal approval of claim id : %d \n", claimId)
 	// Retrieve Withdraw Claim
 	{
 		withdrawRow := db.QueryRow("SELECT id, amount, claim_user_id, claim_status FROM withdraw_claim where id = ?", claimId)
@@ -427,6 +430,10 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+type CheckBalanceResponse struct {
+	Balance *big.Int
+}
+
 func HandleCheckBalance(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Token")
 	db, err := GetDBClient()
@@ -441,10 +448,15 @@ func HandleCheckBalance(w http.ResponseWriter, r *http.Request) {
 	err = row.Scan(&user.Id, &user.AccountNumber)
 	if err != nil {
 		log.Printf("[HandleCheckBalance][Get User] err : %v\n", err)
-		CheckDBErr(&w, err, "Cannot find specific User")
+		CheckDBErr(&w, err, "Cannot find user based on token")
 		return
 	}
 	log.Printf("[HandleCheckBalance] Checking Balance for %v\n", user.AccountNumber)
 	balance, err := GetAccountBalance(user.AccountNumber)
-	fmt.Printf("Balance is %v\n", balance)
+	w.WriteHeader(200)
+	response := CheckBalanceResponse{
+		Balance: balance,
+	}
+	json.NewEncoder(w).Encode(response)
+	return
 }

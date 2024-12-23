@@ -13,7 +13,7 @@
 				"header": [
 					{
 						"key": "Token",
-						"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzQ4NzA0NTksImlhdCI6MTczNDg2Njg1OSwidXNlcm5hbWUiOiJzdGFmZjEifQ.zeNMAykq7FLrGdZnBYuNjCurbENV1gIhLYR3xvX5Spc",
+						"value": "{{staff_token}}",
 						"type": "text"
 					}
 				],
@@ -22,7 +22,7 @@
 					"formdata": [
 						{
 							"key": "Amount",
-							"value": "100",
+							"value": "100000",
 							"type": "text"
 						}
 					]
@@ -38,13 +38,13 @@
 			"response": []
 		},
 		{
-			"name": "Approval Withdraw Claim - Manager 1",
+			"name": "Approval Withdraw Claim - Staff 1",
 			"request": {
 				"method": "POST",
 				"header": [
 					{
 						"key": "Token",
-						"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzQ4NzA0NDQsImlhdCI6MTczNDg2Njg0NCwidXNlcm5hbWUiOiJtYW5hZ2VyMSJ9.A92KYKiQgM03orXsLuW-Lfh5mJN-gitYlJBCha58MDc",
+						"value": "{{staff_token}}",
 						"type": "text"
 					}
 				],
@@ -53,7 +53,38 @@
 					"formdata": [
 						{
 							"key": "ClaimId",
-							"value": "1",
+							"value": "2",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": ":8080/approveWithdraw",
+					"port": "8080",
+					"path": [
+						"approveWithdraw"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Approval Withdraw Claim - Manager 1",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Token",
+						"value": "{{manager1_token}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "ClaimId",
+							"value": "2",
 							"type": "text"
 						}
 					]
@@ -75,7 +106,7 @@
 				"header": [
 					{
 						"key": "Token",
-						"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzQ4NjI2OTcsImlhdCI6MTczNDg1OTA5NywidXNlcm5hbWUiOiJzdGFmZjEifQ.nYBnnBqkDtq-SwhyKQCZX3vO3ZbuytzHR_XbYoQQyP8",
+						"value": "{{manager2_token}}",
 						"type": "text"
 					}
 				],
@@ -83,15 +114,40 @@
 					"mode": "formdata",
 					"formdata": [
 						{
-							"key": "Amount",
-							"value": "100",
+							"key": "ClaimId",
+							"value": "2",
 							"type": "text"
-						},
+						}
+					]
+				},
+				"url": {
+					"raw": ":8080/approveWithdraw",
+					"port": "8080",
+					"path": [
+						"approveWithdraw"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Approval Withdraw Claim - Manager 3",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Token",
+						"value": "{{manager3_token}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
 						{
-							"key": "Message",
-							"value": "HELLO",
-							"type": "text",
-							"disabled": true
+							"key": "ClaimId",
+							"value": "2",
+							"type": "text"
 						}
 					]
 				},
@@ -116,7 +172,8 @@
 							"const accounts = [",
 							"    { username: pm.collectionVariables.get(\"staff_username\"), password: pm.collectionVariables.get(\"staff_password\"), tokenVar: \"staff_token\" },",
 							"    { username: pm.collectionVariables.get(\"manager_username\"), password: pm.collectionVariables.get(\"manager_password\"), tokenVar: \"manager1_token\" },",
-							"    { username: pm.collectionVariables.get(\"manager2_username\"), password: pm.collectionVariables.get(\"manager2_password\"), tokenVar: \"manager2_token\" }",
+							"    { username: pm.collectionVariables.get(\"manager2_username\"), password: pm.collectionVariables.get(\"manager2_password\"), tokenVar: \"manager2_token\" },",
+							"    { username: pm.collectionVariables.get(\"manager3_username\"), password: pm.collectionVariables.get(\"manager3_password\"), tokenVar: \"manager3_token\" }",
 							"];",
 							"",
 							"// Get the current index from the environment or start with 0",
@@ -125,6 +182,7 @@
 							"",
 							"// Ensure the index is within bounds",
 							"if (currentIndex >= accounts.length) {",
+							"    pm.collectionVariables.set(\"current_index\", -1)",
 							"    console.error(\"All accounts processed\");",
 							"    pm.execution.setNextRequest(null);",
 							"} else {",
@@ -175,7 +233,7 @@
 							"pm.collectionVariables.set(\"current_index\", currentIndex + 1);",
 							"",
 							"// Set the next request to the same one to process the next account",
-							"postman.setNextRequest(pm.info.requestName);",
+							"pm.execution.setNextRequest(pm.info.requestName);",
 							""
 						],
 						"type": "text/javascript",
@@ -246,13 +304,29 @@
 	],
 	"variable": [
 		{
+			"key": "current_index",
+			"value": ""
+		},
+		{
+			"key": "username",
+			"value": ""
+		},
+		{
+			"key": "password",
+			"value": ""
+		},
+		{
+			"key": "tokenVar",
+			"value": ""
+		},
+		{
 			"key": "staff_username",
 			"value": "staff1",
 			"type": "string"
 		},
 		{
 			"key": "staff_password",
-			"value": "staff1",
+			"value": "staff2",
 			"type": "string"
 		},
 		{
@@ -276,33 +350,29 @@
 			"type": "string"
 		},
 		{
-			"key": "staff_token",
-			"value": "",
+			"key": "manager3_username",
+			"value": "manager3",
 			"type": "string"
 		},
 		{
-			"key": "manager1_token",
-			"value": "",
+			"key": "manager3_password",
+			"value": "manager3",
 			"type": "string"
-		},
-		{
-			"key": "username",
-			"value": ""
-		},
-		{
-			"key": "password",
-			"value": ""
-		},
-		{
-			"key": "tokenVar",
-			"value": ""
-		},
-		{
-			"key": "current_index",
-			"value": ""
 		},
 		{
 			"key": "manager2_token",
+			"value": ""
+		},
+		{
+			"key": "manager1_token",
+			"value": ""
+		},
+		{
+			"key": "staff_token",
+			"value": ""
+		},
+		{
+			"key": "manager3_token",
 			"value": ""
 		}
 	]

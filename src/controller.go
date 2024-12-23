@@ -343,7 +343,7 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			log.Printf("[HandleApproval][Get claim approvals] err : %v\n", err)
 			w.WriteHeader(200)
-			w.Write([]byte("DB ERROR"))
+			w.Write([]byte("Could not retrieve approval information from DB"))
 			return
 		}
 	}
@@ -361,14 +361,14 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("[HandleWithdrawApproval] DB insert err: %v\n", err)
 			w.WriteHeader(200)
-			w.Write([]byte("Claim request failed to insert into DB"))
+			w.Write([]byte("Claim approval failed to insert into DB"))
 			return
 		}
 		approvalId, _ := result.LastInsertId()
 		if approvalId == 0 {
 			log.Printf("[HandleWithdrawApproval] DB insert failed")
 			w.WriteHeader(200)
-			w.Write([]byte("Claim request failed to insert into DB"))
+			w.Write([]byte("No Claim request has been inserted into DB"))
 			return
 		}
 	}
@@ -393,6 +393,7 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	if !isSuccess {
 		w.WriteHeader(200)
 		w.Write([]byte("Claim amount parsing error"))
+		tx.Rollback()
 		return
 	}
 	var claimUser User
@@ -453,6 +454,12 @@ func HandleCheckBalance(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[HandleCheckBalance] Checking Balance for %v\n", user.AccountNumber)
 	balance, err := GetAccountBalance(user.AccountNumber)
+	if err != nil {
+		log.Printf("[HandleCheckBalance][GetAccountBalance] err : %v\n", err)
+		w.WriteHeader(200)
+		w.Write([]byte("Error on retrieving account balance from chain"))
+		return
+	}
 	w.WriteHeader(200)
 	response := CheckBalanceResponse{
 		Balance: balance,

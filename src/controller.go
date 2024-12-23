@@ -45,6 +45,18 @@ func HandleNewWithdraw(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Invalid Amount"))
 		return
 	}
+	hasEnoughBalance, err := HasEnoughTreasuryBalance(bigNum)
+	if err != nil {
+		log.Printf("[HandleNewWithdraw][HasEnoughTreasuryBalance] err: %v\n", err)
+		w.WriteHeader(200)
+		w.Write([]byte("Could not connect to chain to check treasury balance"))
+		return
+	}
+	if !hasEnoughBalance {
+		w.WriteHeader(200)
+		w.Write([]byte("Treasury does not have enough balance"))
+		return
+	}
 	result, err := db.Exec("INSERT INTO withdraw_claim(claim_user_id, amount) VALUES (?,?)", user.Id, bigNum.String())
 	if err != nil {
 		CheckDBExecLastIdErr(result, &w, err, "Claim request failed to insert into DB")
@@ -209,7 +221,7 @@ func RetryFailedTransactions() {
 	}
 }
 
-func CheckTreasuryBalance(withdrawalAmount *big.Int) {
+func HasEnoughTreasuryBalance(withdrawalAmount *big.Int) (isEnough bool, err error) {
 	ctx := context.Background()
 	client, err := GetEthClient()
 	if err != nil {
@@ -225,20 +237,7 @@ func CheckTreasuryBalance(withdrawalAmount *big.Int) {
 	diff := big.NewInt(0)
 	balance, err := GetAccountBalance(treasuryAddress)
 	diff.Sub(balance, withdrawalAmount)
-	if diff.Int64() > 0 {
-		return
-	}
-	log.Println("Treasury has insufficient amount, proceeding to mint tokens")
-	contract := getContract()
-	mintAmount := big.NewInt(0)
-	mintAmount.Mul(withdrawalAmount, big.NewInt(2))
-	tx, err := contract.Mint(auth, mintAmount)
-	if err != nil {
-		log.Fatalf("Failed to wait for mint transaction to be submitted : %v", err)
-	}
-	fmt.Printf("Minting token Transaction waiting to be mined: 0x%x\n", tx.Hash())
-	bind.WaitMined(ctx, client, tx)
-	fmt.Printf("Transaction mined: 0x%x\n", tx.Hash())
+	isEnough = diff.Int64() > 0
 	return
 }
 
@@ -268,10 +267,24 @@ func SubmitWithdrawalToChain(accountNumber string, withdrawalAmount *big.Int) (u
 		updateStatus = TX_SUCCESS_ON_CHAIN
 		txHash = tx.Hash().String()
 	} else {
-		go func() {
-			CheckTreasuryBalance(withdrawalAmount)
-		}()
 		updateStatus = TX_CHAIN_ERROR
+	}
+	return
+}
+
+func IsUserAuthorized(db *sql.DB, w *http.ResponseWriter, token string) (user User, isAuthorized bool, err error) {
+	row := db.QueryRow("SELECT id , role, account_number FROM users where token = ?", token)
+	err = row.Scan(&user.Id, &user.Role, &user.AccountNumber)
+	if err != nil {
+		log.Printf("[IsUserAuthorized] err : %v\n", err)
+		CheckDBErr(w, err, "Cannot find specific User")
+		return
+	}
+	if user.Role != ROLE_MANAGER {
+		isAuthorized = false
+		(*w).WriteHeader(http.StatusUnauthorized)
+		(*w).Write([]byte("User has no permission to approve withdrawal claims"))
+		return
 	}
 	return
 }
@@ -286,22 +299,11 @@ func HandleWithdrawApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := db.Begin()
 	defer db.Close()
-	var user User
-	// Retrieve User
-	{
-		row := db.QueryRow("SELECT id , role, account_number FROM users where token = ?", token)
-		err = row.Scan(&user.Id, &user.Role, &user.AccountNumber)
-		if err != nil {
-			log.Printf("[HandleNewWithdraw][Get User] err : %v\n", err)
-			CheckDBErr(&w, err, "Cannot find specific User")
-			return
-		}
-	}
-	if user.Role != ROLE_MANAGER {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("User has no permission to approve withdrawal claims"))
+	user, isAuthorized, err := IsUserAuthorized(db, &w, token)
+	if !isAuthorized || err != nil {
 		return
 	}
+
 	err = r.ParseMultipartForm(10 << 20)
 	claimIdStr := r.FormValue("ClaimId")
 	claimId, err := strconv.ParseInt(claimIdStr, 10, 64)

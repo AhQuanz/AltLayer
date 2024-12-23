@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS withdraw_claim  (
     FOREIGN KEY (claim_user_id) REFERENCES users(id)
 );
 
+INSERT INTO withdraw_claim(claim_user_id, amount, claim_status)
+VALUES (1, 100, 4);
+
 CREATE TABLE IF NOT EXISTS withdraw_claims_approval  (
     id INT AUTO_INCREMENT PRIMARY KEY,
     claim_id INT NOT NULL,
@@ -41,3 +44,9 @@ CREATE TABLE IF NOT EXISTS withdraw_claims_approval  (
     FOREIGN KEY (approve_manager_id) REFERENCES users(id),
     FOREIGN KEY (claim_id) REFERENCES withdraw_claim(id)
 );
+
+INSERT INTO withdraw_claim(claim_id, approve_manager_id)
+VALUES (1, 3);
+
+INSERT INTO withdraw_claim(claim_id, approve_manager_id)
+VALUES (1, 5);
